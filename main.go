@@ -157,11 +157,12 @@ func main() {
 
 	// Retrieve active connected inventory maps
 	mux.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
-		ipsConnected := []string{}
+		ipsConnected := map[any]any{}
+
 		ipRegistry.Range(func(key, value any) bool {
-			if ipStr, ok := key.(string); ok {
-				ipsConnected = append(ipsConnected, ipStr)
-			}
+
+			ipsConnected[key] = value
+
 			return true
 		})
 
