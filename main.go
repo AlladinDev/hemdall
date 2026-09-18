@@ -51,7 +51,9 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		targetUrl := r.URL.Query().Get("url")
 		ipAddr, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
@@ -83,7 +85,29 @@ func main() {
 	})
 
 	fmt.Printf("Server started successfully")
-	if err := http.ListenAndServe(":8000", nil); err != nil {
+	if err := http.ListenAndServe(":8000", CorsMiddleware(mux)); err != nil {
 		fmt.Println("failed to start server err is : ", err)
 	}
+}
+
+func CorsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Allow any origin, or specify a domain like "http://localhost:3000"
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// Define the permitted methods
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+
+		// Define the permitted request headers
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+
+		// Crucial: Handle the browser's preflight OPTIONS request immediately
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// Pass the request along the middleware chain
+		next.ServeHTTP(w, r)
+	})
 }
