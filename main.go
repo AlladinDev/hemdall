@@ -23,10 +23,7 @@ func main() {
 	proxy := &httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			//first get the ip address of the user
-			ipAddr, _, err := net.SplitHostPort(r.RemoteAddr)
-			if err != nil {
-				ipAddr = r.RemoteAddr
-			}
+			ipAddr := ""
 
 			//now maybe the user is behind load balancer so extract the real ip
 			// If behind a proxy/load balancer, prioritize the real client IP [1]
