@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"sync"
 )
 
@@ -15,6 +16,10 @@ var devices = map[string]string{}
 var ipRegistry sync.Map
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Local fallback
+	}
 	proxy := &httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			//first get the ip address of the user
@@ -85,7 +90,7 @@ func main() {
 	})
 
 	fmt.Printf("Server started successfully")
-	if err := http.ListenAndServe(":8000", CorsMiddleware(mux)); err != nil {
+	if err := http.ListenAndServe("0.0.0.0:"+port, CorsMiddleware(mux)); err != nil {
 		fmt.Println("failed to start server err is : ", err)
 	}
 }
