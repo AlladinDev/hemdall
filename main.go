@@ -85,11 +85,20 @@ func main() {
 					r.URL.Scheme = redirectUrl.Scheme
 					r.URL.Host = redirectUrl.Host
 					r.Host = redirectUrl.Host
+
 				}
 			} else {
 				// CRITICAL PROTECTION LAYER: Halts forwarding if state validation matches are blank
 				r.URL.Scheme = ""
 			}
+		},
+		// CRITICAL FIX: Strip away browser caching properties on proxied routes
+		ModifyResponse: func(res *http.Response) error {
+			// Force the client browser to validate with the server on every click
+			res.Header.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+			res.Header.Set("Pragma", "no-cache")
+			res.Header.Set("Expires", "0")
+			return nil
 		},
 	}
 
@@ -104,11 +113,7 @@ func main() {
 			return
 		}
 
-		// Multi-core clearing method targeting our concurrent map storage
-		ipRegistry.Range(func(key, value any) bool {
-			ipRegistry.Delete(key)
-			return true
-		})
+		ipRegistry.Clear()
 
 		w.Write([]byte("devices history cleared successfully"))
 	})
@@ -127,6 +132,11 @@ func main() {
 		// 1. Dynamic User Device Registration Logic Path
 		if targetUrlParam != "" {
 			formattedTarget := ensureScheme(targetUrlParam)
+			//only allow localhost to be used for preventing unwanted bots
+			if !strings.Contains(formattedTarget, "localhost") {
+				w.Write([]byte("only localhost paths allowed"))
+				return
+			}
 			userParsedIpAddr, err := url.Parse(formattedTarget)
 			if err != nil || userParsedIpAddr.Host == "" {
 				w.WriteHeader(http.StatusBadRequest)
@@ -138,7 +148,7 @@ func main() {
 			ipRegistry.Store(ipAddr, userParsedIpAddr)
 
 			fmt.Printf("Registered isolated IP %s -> %s\n", ipAddr, userParsedIpAddr.String())
-			w.Write([]byte(fmt.Sprintf("device registered successfully for IP: %s", ipAddr)))
+			w.Write([]byte(fmt.Sprintf("device registered successfully for IP: %s -> %s", ipAddr, userParsedIpAddr)))
 			return
 		}
 
@@ -146,7 +156,7 @@ func main() {
 		_, targetRegistered := ipRegistry.Load(ipAddr)
 		if !targetRegistered {
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(fmt.Sprintf("you have not registered first. Your isolated tracker device tag is: %s", ipAddr)))
+			fmt.Fprint(w, "device not registered yet")
 			return
 		}
 
@@ -157,11 +167,19 @@ func main() {
 
 	// Retrieve active connected inventory maps
 	mux.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
-		ipsConnected := map[any]any{}
+		ipsConnected := map[string]string{}
 
-		ipRegistry.Range(func(key, value any) bool {
+		ipRegistry.Range(func(keyAny, valueAny any) bool {
+			key, ok := keyAny.(string)
+			if !ok {
+				w.Write([]byte("failed to get devices info"))
+			}
+			value, ok := valueAny.(*url.URL)
+			if !ok {
+				w.Write([]byte("failed to get devices info,failed to convert value of devices into url formay"))
 
-			ipsConnected[key] = value
+			}
+			ipsConnected[key] = value.String()
 
 			return true
 		})
@@ -174,7 +192,7 @@ func main() {
 
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("failed to compile engine connected client arrays"))
+			w.Write([]byte(err.Error()))
 			return
 		}
 
