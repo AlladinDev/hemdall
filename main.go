@@ -55,6 +55,17 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/purgebuckets", func(w http.ResponseWriter, r *http.Request) {
+		//first get the query password
+		pass := r.URL.Query().Get("password")
+		if pass == "" || pass != "aishafarooq" {
+			w.Write([]byte("wrong or empty password"))
+		}
+
+		ipRegistry.Clear()
+		w.Write([]byte("devices history cleared successfully"))
+	})
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		targetUrl := r.URL.Query().Get("url")
 		ipAddr := ""
