@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"math/rand"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Define a private custom type for context keys to avoid any framework collisions
@@ -18,38 +20,29 @@ type contextKey string
 
 const userIPKey contextKey = "userIP"
 
+var codes sync.Map
+
+type IpEntry struct {
+	URL     *url.URL
+	ExiryAt time.Time
+}
+
 // A thread-safe map to store IP -> Target *url.URL mappings
 var ipRegistry sync.Map
 
-// Helper utility function to cleanly isolate the true client IP from proxy networks
-func getTrueClientIP(r *http.Request) string {
-	// Prioritise Cloudflare's direct value if provided on Render
-	if cfIP := r.Header.Get("CF-Connecting-IP"); cfIP != "" {
-		return strings.TrimSpace(cfIP)
-	}
-
-	// Fallback to splitting the standard multi-hop reverse proxy chain list
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		ips := strings.Split(forwarded, ",")
-		realIP := strings.TrimSpace(ips[0]) // Isolate the first element (true desktop client)
-
-		// Strip ports if present in the forward string token layout
-		if strings.Contains(realIP, ":") {
-			host, _, err := net.SplitHostPort(realIP)
-			if err == nil {
-				return host
+func generateUniqueNumber(lengthOfCode int) string {
+	str := ""
+	for {
+		num := rand.Intn(10) // Change 100 to your desired range
+		str += strconv.Itoa(num)
+		if len(str) == lengthOfCode {
+			if _, exists := codes.Load(str); exists {
+				str = ""
+				continue
 			}
+			return str
 		}
-		return realIP
 	}
-
-	// Local development fallback parsing loop
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 // Helper utility function to ensure targets have valid protocol network schemes
@@ -70,8 +63,8 @@ func main() {
 	proxy := &httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			// Pull our typed key out of request context propagation
-			ipAddrAny := r.Context().Value(userIPKey)
-			ipAddress, ok := ipAddrAny.(string)
+			userUniqueCode := r.Context().Value(userIPKey)
+			userCode, ok := userUniqueCode.(string)
 			if !ok {
 				fmt.Println("failed to parse ip address got from ctx into string format")
 				r.URL.Scheme = "" // Forces proxy tracking execution blocks to halt
@@ -79,12 +72,12 @@ func main() {
 			}
 
 			// Cross reference validated identifier configuration settings
-			if val, exists := ipRegistry.Load(ipAddress); exists {
-				redirectUrl, ok := val.(*url.URL)
+			if val, exists := ipRegistry.Load(userCode); exists {
+				deviceEntry, ok := val.(IpEntry)
 				if ok {
-					r.URL.Scheme = redirectUrl.Scheme
-					r.URL.Host = redirectUrl.Host
-					r.Host = redirectUrl.Host
+					r.URL.Scheme = deviceEntry.URL.Scheme
+					r.URL.Host = deviceEntry.URL.Host
+					r.Host = deviceEntry.URL.Host
 
 				}
 			} else {
@@ -126,8 +119,13 @@ func main() {
 		}
 
 		// Extract isolated client tracker layout using clean string operations
-		ipAddr := getTrueClientIP(r)
 		targetUrlParam := r.URL.Query().Get("url")
+		userUniqueCode := r.URL.Query().Get("code")
+
+		if targetUrlParam == "" && userUniqueCode == "" {
+			w.Write([]byte("either user code or registration url must be supplied"))
+			return
+		}
 
 		// 1. Dynamic User Device Registration Logic Path
 		if targetUrlParam != "" {
@@ -145,15 +143,20 @@ func main() {
 			}
 
 			// Map true isolated desktop tracking IP key to target destination url configuration values
-			ipRegistry.Store(ipAddr, userParsedIpAddr)
+			// //now generate some unique code otp to map each device uniquely
+			otp := generateUniqueNumber(6)
+			ipRegistry.Store(otp, IpEntry{
+				URL:     userParsedIpAddr,
+				ExiryAt: time.Now().Add(24 * time.Hour * 7),
+			})
 
-			fmt.Printf("Registered isolated IP %s -> %s\n", ipAddr, userParsedIpAddr.String())
-			w.Write([]byte(fmt.Sprintf("device registered successfully for IP: %s -> %s", ipAddr, userParsedIpAddr)))
+			fmt.Printf("Registered isolated IP %s -> %s\n", otp, userParsedIpAddr.String())
+			w.Write([]byte(fmt.Sprintf("device registered successfully with otp : %s -> %s", otp, userParsedIpAddr)))
 			return
 		}
 
 		// 2. State Validation Security Logic Gate
-		_, targetRegistered := ipRegistry.Load(ipAddr)
+		_, targetRegistered := ipRegistry.Load(userUniqueCode)
 		if !targetRegistered {
 			w.WriteHeader(http.StatusForbidden)
 			fmt.Fprint(w, "device not registered yet")
@@ -161,7 +164,7 @@ func main() {
 		}
 
 		// 3. Execution Context Propagation & Downstream Pipeline Connection
-		updatedCtx := context.WithValue(r.Context(), userIPKey, ipAddr)
+		updatedCtx := context.WithValue(r.Context(), userIPKey, userUniqueCode)
 		proxy.ServeHTTP(w, r.WithContext(updatedCtx))
 	})
 
@@ -174,12 +177,12 @@ func main() {
 			if !ok {
 				w.Write([]byte("failed to get devices info"))
 			}
-			value, ok := valueAny.(*url.URL)
+			value, ok := valueAny.(IpEntry)
 			if !ok {
 				w.Write([]byte("failed to get devices info,failed to convert value of devices into url formay"))
 
 			}
-			ipsConnected[key] = value.String()
+			ipsConnected[key] = value.URL.String()
 
 			return true
 		})

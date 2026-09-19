@@ -40,13 +40,41 @@ func dummyHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(responseData)
 }
 
+// CorsMiddleware wraps an http.Handler to inject CORS headers and handle preflight lookups
+func CorsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Allow any frontend origin to read this data
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// Define the permitted HTTP methods
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+
+		// Define the permitted custom request headers (like content-type or auth tags)
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+
+		// Crucial: Instantly intercept and handle the browser's preflight OPTIONS handshake
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// Pass the validated request down to your dummyHandler
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	// Catch all routes on this dummy server
-	http.HandleFunc("/", dummyHandler)
+	// Create a new ServeMux router to cleanly hold your routes
+	mux := http.NewServeMux()
+
+	// Catch all routes on this dummy server mapping
+	mux.HandleFunc("/", dummyHandler)
 
 	port := ":8080"
 	log.Printf("Dummy Target Server is listening on port %s...", port)
-	if err := http.ListenAndServe(port, nil); err != nil {
+
+	// Wrap your entire mux router inside the CorsMiddleware function wrapper
+	if err := http.ListenAndServe(port, CorsMiddleware(mux)); err != nil {
 		log.Fatalf("Dummy server failed: %v", err)
 	}
 }
