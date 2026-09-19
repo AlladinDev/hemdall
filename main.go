@@ -113,10 +113,6 @@ func main() {
 
 	// Unified API Router Endpoint Entry Point
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Bypass processing if root endpoint is hitting system monitoring routes
-		if r.URL.Path == "/devices" || r.URL.Path == "/purgebuckets" {
-			return
-		}
 
 		// Extract isolated client tracker layout using clean string operations
 		targetUrlParam := r.URL.Query().Get("url")
